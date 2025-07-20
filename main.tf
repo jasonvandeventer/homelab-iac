@@ -48,8 +48,9 @@ resource "docker_container" "plex" {
     source = docker_volume.plex_config.name
     type   = "volume"
   }
+  # Media library
   mounts {
-    target = "/data/movies"
+    target = "/data"
     source = docker_volume.media_library.name
     type   = "volume"
   }
@@ -66,4 +67,146 @@ resource "docker_container" "plex" {
     host_path      = "/dev/dri"
     container_path = "/dev/dri"
   }
+}
+
+# Radarr = Movie Management
+resource "docker_container" "radarr" {
+  name    = "radarr"
+  image   = "linuxserver/radarr:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 7878
+    external = 7878
+  }
+
+  mounts {
+    target = "/config"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/downloads"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/data"
+    source = docker_volume.media_library.name
+    type   = "volume"
+  }
+
+  env = [
+    "PUID=1000",
+    "PGID=1000",
+    "TZ=America/Chicago"
+  ]
+}
+
+# Sonarr - TV Show Management
+resource "docker_container" "sonarr" {
+  name    = "sonarr"
+  image   = "linuxserver/sonarr:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 8989
+    external = 8989
+  }
+
+  mounts {
+    target = "/config"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/downloads"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/data"
+    source = docker_volume.media_library.name
+    type   = "volume"
+  }
+
+  env = [
+    "PUID=1000",
+    "PGID=1000",
+    "TZ=America/Chicago"
+  ]
+}
+
+# Bazarr - Subtitle Management
+resource "docker_container" "bazarr" {
+  name    = "bazarr"
+  image   = "linuxserver/bazarr:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 6767
+    external = 6767
+  }
+
+  mounts {
+    target = "/config"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/data"
+    source = docker_volume.media_library.name
+    type   = "volume"
+  }
+
+  env = [
+    "PUID=1000",
+    "PGID=1000",
+    "TZ=America/Chicago"
+  ]
+}
+
+# SABnzbd - Usenet Downloader
+resource "docker_container" "sabnzbd" {
+  name    = "sabnzbd"
+  image   = "linuxserver/sabnzbd:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 8080
+    external = 8080
+  }
+
+  mounts {
+    target = "/config"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/downloads"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+
+  env = [
+    "PUID=1000",
+    "PGID=1000",
+    "TZ=America/Chicago"
+  ]
 }
