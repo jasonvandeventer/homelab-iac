@@ -210,3 +210,73 @@ resource "docker_container" "sabnzbd" {
     "TZ=America/Chicago"
   ]
 }
+
+# Portainer - Docker Management UI
+resource "docker_container" "portainer" {
+  name    = "portainer"
+  image   = "portainer/portainer-ce:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 9000
+    external = 9000
+  }
+
+  mounts {
+    target = "/var/run/docker.sock"
+    source = "/var/run/docker.sock"
+    type   = "bind"
+  }
+  mounts {
+    target = "/data"
+    source = docker_volume.downloads.name
+    type   = "volume"
+  }
+}
+
+# Nginx Proxy Manager - Reverse Proxy + SSL
+resource "docker_volume" "npm_data" {
+  name = "npm_data"
+}
+
+resource "docker_volume" "npm_letsencrypt" {
+  name = "npm_letsencrypt"
+}
+
+resource "docker_container" "nginx_proxy_manager" {
+  name    = "nginx-proxy-manager"
+  image   = "jc21/nginx-proxy-manager:latest"
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.media_network.name
+  }
+
+  ports {
+    internal = 81
+    external = 81
+  }
+  ports {
+    internal = 80
+    external = 80
+  }
+  ports {
+    internal = 443
+    external = 443
+  }
+
+  mounts {
+    target = "/data"
+    source = docker_volume.npm_data.name
+    type   = "volume"
+  }
+  mounts {
+    target = "/etc/letsencrypt"
+    source = docker_volume.npm_letsencrypt.name
+    type   = "volume"
+  }
+}
