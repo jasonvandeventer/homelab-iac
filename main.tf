@@ -39,7 +39,7 @@ resource "docker_container" "plex" {
 
   ports {
     internal = 32400
-    external = 32400
+    external = tonumber(var.ports["plex"])
   }
 
   # Bind persistent volumes
@@ -57,9 +57,9 @@ resource "docker_container" "plex" {
 
   # Environment variables (configurable later)
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=America/Chicago",
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.tz}",
     "VERSION=docker"
   ]
 
@@ -81,7 +81,7 @@ resource "docker_container" "radarr" {
 
   ports {
     internal = 7878
-    external = 7878
+    external = tonumber(var.ports["radarr"])
   }
 
   mounts {
@@ -101,9 +101,10 @@ resource "docker_container" "radarr" {
   }
 
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=America/Chicago"
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.tz}",
+    "VERSION=docker"
   ]
 }
 
@@ -119,7 +120,7 @@ resource "docker_container" "sonarr" {
 
   ports {
     internal = 8989
-    external = 8989
+    external = tonumber(var.ports["sonarr"])
   }
 
   mounts {
@@ -139,9 +140,10 @@ resource "docker_container" "sonarr" {
   }
 
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=America/Chicago"
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.tz}",
+    "VERSION=docker"
   ]
 }
 
@@ -157,7 +159,7 @@ resource "docker_container" "bazarr" {
 
   ports {
     internal = 6767
-    external = 6767
+    external = tonumber(var.ports["bazarr"])
   }
 
   mounts {
@@ -172,9 +174,10 @@ resource "docker_container" "bazarr" {
   }
 
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=America/Chicago"
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.tz}",
+    "VERSION=docker"
   ]
 }
 
@@ -190,7 +193,7 @@ resource "docker_container" "sabnzbd" {
 
   ports {
     internal = 8080
-    external = 8080
+    external = tonumber(var.ports["sabnzbd"])
   }
 
   mounts {
@@ -205,9 +208,10 @@ resource "docker_container" "sabnzbd" {
   }
 
   env = [
-    "PUID=1000",
-    "PGID=1000",
-    "TZ=America/Chicago"
+    "PUID=${var.puid}",
+    "PGID=${var.pgid}",
+    "TZ=${var.tz}",
+    "VERSION=docker"
   ]
 }
 
@@ -223,7 +227,7 @@ resource "docker_container" "portainer" {
 
   ports {
     internal = 9000
-    external = 9000
+    external = tonumber(var.ports["portainer"])
   }
 
   mounts {
@@ -258,15 +262,15 @@ resource "docker_container" "nginx_proxy_manager" {
 
   ports {
     internal = 81
-    external = 81
+    external = tonumber(var.ports["npm_admin"])
   }
   ports {
     internal = 80
-    external = 80
+    external = tonumber(var.ports["npm_http"])
   }
   ports {
     internal = 443
-    external = 443
+    external = tonumber(var.ports["npm_https"])
   }
 
   mounts {

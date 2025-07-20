@@ -1,0 +1,16 @@
+# Example override config
+puid = "1001"
+pgid = "1001"
+tz   = "Europe/London"
+
+ports = {
+  plex       = "32400"
+  radarr     = "7878"
+  sonarr     = "8989"
+  bazarr     = "6767"
+  sabnzbd    = "8080"
+  portainer  = "9000"
+  npm_admin  = "81"
+  npm_http   = "80"
+  npm_https  = "443"
+}
