@@ -14,15 +14,15 @@
 
 ## 📂 Repo Structure
 
-```
+```md
 homelab-bootstrap/
-├── main.tf                      # Terraform config for media stack
-├── variables.tf                 # API keys, ports, user config
-├── outputs.tf                   # Quick access URLs
-├── terraform.tfvars             # Your personal API keys + TZ
+├── main.tf # Terraform config for media stack
+├── variables.tf # API keys, ports, user config
+├── outputs.tf # Quick access URLs
+├── terraform.tfvars # Your personal API keys + TZ
 ├── scripts/
-│   └── configure-media-stack.sh # Auto-links Sonarr/Radarr to SABnzbd + Prowlarr + seeds indexers
-└── volumes.tf                   # (Optional) extra volume definitions
+│ └── configure-media-stack.sh # Auto-links Sonarr/Radarr to SABnzbd + Prowlarr + seeds indexers
+└── volumes.tf # (Optional) extra volume definitions
 ```
 
 ---
@@ -106,6 +106,7 @@ terraform output media_stack_urls
 
 - Updating containers with `terraform apply` **does not reset API keys** (persisted in `/config` volumes).
 - Adding more indexers later? Just run:
+
   ```bash
   bash scripts/configure-media-stack.sh     --sonarr-url "http://localhost:8989"     --sonarr-key "$SONARR_KEY"     --radarr-url "http://localhost:7878"     --radarr-key "$RADARR_KEY"     --sab-url "http://localhost:8080"     --sab-key "$SAB_KEY"     --prowlarr-url "http://localhost:9696"     --prowlarr-key "$PROWLARR_KEY"     --nzbgeek-key "$NZBGEEK_KEY"
   ```
