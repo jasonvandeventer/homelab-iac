@@ -123,36 +123,64 @@ wait_for_config_file "prowlarr" "/config/config.xml"
 wait_for_config_file "sabnzbd" "/config/sabnzbd.ini"
 
 ############################################################
-# Step 2: Auto-fetch API keys if placeholders/empty
+# Step 2: Safe auto-fetch API keys if placeholders/empty
 ############################################################
+
+safe_fetch_key() {
+  local container=$1
+  local path=$2
+  local pattern=$3
+  docker exec "$container" cat "$path" 2>/dev/null | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p" || true
+}
 
 # Sonarr
 if [ -z "$SONARR_KEY" ] || [ "$SONARR_KEY" = "CHANGEME" ]; then
-  SONARR_KEY=$(fetch_api_key "sonarr" "/config/config.xml" "ApiKey")
-  echo "✅ Sonarr API key detected: $SONARR_KEY"
-  update_tfvars_key "sonarr_api_key" "$SONARR_KEY"
+  NEW_KEY=$(safe_fetch_key "sonarr" "/config/config.xml" "ApiKey")
+  if [ -n "$NEW_KEY" ]; then
+    SONARR_KEY="$NEW_KEY"
+    echo "✅ Sonarr API key detected: $SONARR_KEY"
+    update_tfvars_key "sonarr_api_key" "$SONARR_KEY"
+  else
+    echo "⚠️ Could not fetch Sonarr key (will retry later)."
+  fi
 fi
 
 # Radarr
 if [ -z "$RADARR_KEY" ] || [ "$RADARR_KEY" = "CHANGEME" ]; then
-  RADARR_KEY=$(fetch_api_key "radarr" "/config/config.xml" "ApiKey")
-  echo "✅ Radarr API key detected: $RADARR_KEY"
-  update_tfvars_key "radarr_api_key" "$RADARR_KEY"
+  NEW_KEY=$(safe_fetch_key "radarr" "/config/config.xml" "ApiKey")
+  if [ -n "$NEW_KEY" ]; then
+    RADARR_KEY="$NEW_KEY"
+    echo "✅ Radarr API key detected: $RADARR_KEY"
+    update_tfvars_key "radarr_api_key" "$RADARR_KEY"
+  else
+    echo "⚠️ Could not fetch Radarr key (will retry later)."
+  fi
 fi
 
 # Prowlarr
 if [ -z "$PROWLARR_KEY" ] || [ "$PROWLARR_KEY" = "CHANGEME" ]; then
-  PROWLARR_KEY=$(fetch_api_key "prowlarr" "/config/config.xml" "ApiKey")
-  echo "✅ Prowlarr API key detected: $PROWLARR_KEY"
-  update_tfvars_key "prowlarr_api_key" "$PROWLARR_KEY"
+  NEW_KEY=$(safe_fetch_key "prowlarr" "/config/config.xml" "ApiKey")
+  if [ -n "$NEW_KEY" ]; then
+    PROWLARR_KEY="$NEW_KEY"
+    echo "✅ Prowlarr API key detected: $PROWLARR_KEY"
+    update_tfvars_key "prowlarr_api_key" "$PROWLARR_KEY"
+  else
+    echo "⚠️ Could not fetch Prowlarr key (will retry later)."
+  fi
 fi
 
 # SABnzbd
 if [ -z "$SAB_KEY" ] || [ "$SAB_KEY" = "CHANGEME" ]; then
-  SAB_KEY=$(docker exec sabnzbd grep "api_key" /config/sabnzbd.ini | cut -d' ' -f3)
-  echo "✅ SABnzbd API key detected: $SAB_KEY"
-  update_tfvars_key "sabnzbd_api_key" "$SAB_KEY"
+  NEW_KEY=$(docker exec sabnzbd grep "api_key" /config/sabnzbd.ini 2>/dev/null | cut -d' ' -f3 || true)
+  if [ -n "$NEW_KEY" ]; then
+    SAB_KEY="$NEW_KEY"
+    echo "✅ SABnzbd API key detected: $SAB_KEY"
+    update_tfvars_key "sabnzbd_api_key" "$SAB_KEY"
+  else
+    echo "⚠️ Could not fetch SABnzbd key (will retry later)."
+  fi
 fi
+
 
 ############################################################
 # Step 3: Wait for APIs (auto-heal keys if needed)
