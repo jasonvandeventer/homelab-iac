@@ -11,11 +11,11 @@ tz   = "America/Chicago"
 ############################################
 # API Keys for Auto-Linking + Indexer Seeding
 ############################################
-sabnzbd_api_key  = "YOUR_SABNZBD_KEY"
-sonarr_api_key   = "YOUR_SONARR_KEY"
-radarr_api_key   = "YOUR_RADARR_KEY"
-prowlarr_api_key = "YOUR_PROWLARR_KEY"
-nzbgeek_api_key  = "pvT1CLUTqGLgads1wEI7DsLzcqzwaLZB"
+sabnzbd_api_key  = "CHANGEME" #YOUR_SABNZBD_KEY
+sonarr_api_key   = "CHANGEME" #YOUR_SONARR_KEY
+radarr_api_key   = "CHANGEME" #YOUR_RADARR_KEY
+prowlarr_api_key = "CHANGEME" #YOUR_PROWLARR_KEY
+nzbgeek_api_key  = "pvT1CLUTqGLgads1wEI7DsLzcqzwaLZB" #Manually pull your API key for nzbgeek
 
 ############################################
 # Optional: Override ports if needed
