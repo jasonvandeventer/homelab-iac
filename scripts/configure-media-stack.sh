@@ -4,11 +4,11 @@ set -e
 # ===============================================
 # configure-media-stack.sh
 # Auto-links Sonarr/Radarr/SABnzbd/Prowlarr
-# Safe to re-run + Terraform output fallback
+# Safe to re-run + Terraform output + auto-fetch keys
 # ===============================================
 
 # ===========
-# LOGGING
+# LOGGING COLORS
 # ===========
 BLUE="\033[1;34m"
 GREEN="\033[1;32m"
@@ -19,23 +19,59 @@ NC="\033[0m"
 log() { echo -e "${BLUE}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+err() { echo -e "${RED}[ERR]${NC} $1"; }
 
 # ===========
-# ARGUMENTS
+# LOG FILE SETUP
 # ===========
-while [[ "$#" -gt 0 ]]; do
-  case $1 in
-    --sonarr-url) SONARR_URL="$2"; shift ;;
-    --sonarr-key) SONARR_KEY="$2"; shift ;;
-    --radarr-url) RADARR_URL="$2"; shift ;;
-    --radarr-key) RADARR_KEY="$2"; shift ;;
-    --sab-url) SAB_URL="$2"; shift ;;
-    --sab-key) SAB_KEY="$2"; shift ;;
-    --prowlarr-url) PROWLARR_URL="$2"; shift ;;
-    --prowlarr-key) PROWLARR_KEY="$2"; shift ;;
-    --nzbgeek-key) NZBGEEK_KEY="$2"; shift ;;
-  esac
-  shift
+LOG_FILE="scripts/configure-media-stack.log"
+mkdir -p scripts
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=== Starting media stack auto-config: $(date) ==="
+
+# ===========
+# ARGUMENTS FROM TERRAFORM
+# ===========
+while [[ $# -gt 0 ]]; do
+	case $1 in
+	--sonarr-url)
+		SONARR_URL="$2"
+		shift
+		;;
+	--sonarr-key)
+		SONARR_KEY="$2"
+		shift
+		;;
+	--radarr-url)
+		RADARR_URL="$2"
+		shift
+		;;
+	--radarr-key)
+		RADARR_KEY="$2"
+		shift
+		;;
+	--sab-url)
+		SAB_URL="$2"
+		shift
+		;;
+	--sab-key)
+		SAB_KEY="$2"
+		shift
+		;;
+	--prowlarr-url)
+		PROWLARR_URL="$2"
+		shift
+		;;
+	--prowlarr-key)
+		PROWLARR_KEY="$2"
+		shift
+		;;
+	--nzbgeek-key)
+		NZBGEEK_API_KEY="$2"
+		shift
+		;;
+	esac
+	shift
 done
 
 # ===========
@@ -50,117 +86,153 @@ SONARR_KEY="${SONARR_KEY:-$(terraform output -raw sonarr_api_key || true)}"
 RADARR_KEY="${RADARR_KEY:-$(terraform output -raw radarr_api_key || true)}"
 SAB_KEY="${SAB_KEY:-$(terraform output -raw sabnzbd_api_key || true)}"
 PROWLARR_KEY="${PROWLARR_KEY:-$(terraform output -raw prowlarr_api_key || true)}"
-NZBGEEK_KEY="${NZBGEEK_KEY:-$(terraform output -raw nzbgeek_api_key || true)}"
+NZBGEEK_API_KEY="${NZBGEEK_API_KEY:-$(terraform output -raw nzbgeek_api_key || true)}"
 
 # ===========
-# SANITY CHECKS
+# HELPERS
 # ===========
-for key in SONARR_KEY RADARR_KEY SAB_KEY PROWLARR_KEY; do
-  if [ -z "${!key}" ] || [ "${!key}" == "null" ]; then
-    warn "$key is missing! Will attempt anyway..."
-  fi
-done
 
+wait_for_config_file() {
+	local container=$1
+	local path=$2
+	log "⏳ Waiting for $container config at $path..."
+	until docker exec "$container" test -f "$path"; do
+		echo "  $container config not ready yet, retrying in 5s..."
+		sleep 5
+	done
+	ok "$container config detected."
+}
+
+fetch_api_key() {
+	local container=$1
+	local config_path=$2
+	local pattern=$3
+	log "🔍 Fetching API key for $container..."
+	docker exec "$container" cat "$config_path" | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p"
+}
+
+update_tfvars_key() {
+	local key_name=$1
+	local key_value=$2
+	if grep -q "$key_name" terraform.tfvars; then
+		sed -i "s|$key_name.*|$key_name  = \"$key_value\"|" terraform.tfvars
+	else
+		echo "$key_name  = \"$key_value\"" >>terraform.tfvars
+	fi
+}
+
+wait_for_api() {
+	local name=$1
+	local url=$2
+	local key=$3
+	log "⏳ Waiting for $name API at $url..."
+	until curl -s -o /dev/null -w "%{http_code}" "${url}" -H "X-Api-Key: ${key}" | grep -q "200"; do
+		echo "  $name not ready yet, retrying in 5s..."
+		sleep 5
+	done
+	ok "$name API is ready!"
+}
+
+# ===========
+# STEP 1: WAIT FOR CONFIG FILES
+# ===========
+wait_for_config_file "sonarr" "/config/config.xml"
+wait_for_config_file "radarr" "/config/config.xml"
+wait_for_config_file "prowlarr" "/config/config.xml"
+wait_for_config_file "sabnzbd" "/config/sabnzbd.ini"
+
+# ===========
+# STEP 2: AUTO-FETCH API KEYS IF EMPTY/PLACEHOLDER
+# ===========
+if [ -z "$SONARR_KEY" ] || [ "$SONARR_KEY" = "CHANGEME" ]; then
+	SONARR_KEY=$(fetch_api_key "sonarr" "/config/config.xml" "ApiKey")
+	ok "Sonarr API key detected: $SONARR_KEY"
+	update_tfvars_key "sonarr_api_key" "$SONARR_KEY"
+fi
+
+if [ -z "$RADARR_KEY" ] || [ "$RADARR_KEY" = "CHANGEME" ]; then
+	RADARR_KEY=$(fetch_api_key "radarr" "/config/config.xml" "ApiKey")
+	ok "Radarr API key detected: $RADARR_KEY"
+	update_tfvars_key "radarr_api_key" "$RADARR_KEY"
+fi
+
+if [ -z "$PROWLARR_KEY" ] || [ "$PROWLARR_KEY" = "CHANGEME" ]; then
+	PROWLARR_KEY=$(fetch_api_key "prowlarr" "/config/config.xml" "ApiKey")
+	ok "Prowlarr API key detected: $PROWLARR_KEY"
+	update_tfvars_key "prowlarr_api_key" "$PROWLARR_KEY"
+fi
+
+if [ -z "$SAB_KEY" ] || [ "$SAB_KEY" = "CHANGEME" ]; then
+	SAB_KEY=$(docker exec sabnzbd grep "api_key" /config/sabnzbd.ini | cut -d' ' -f3)
+	ok "SABnzbd API key detected: $SAB_KEY"
+	update_tfvars_key "sabnzbd_api_key" "$SAB_KEY"
+fi
+
+# ===========
+# STEP 3: WAIT FOR APIS TO RESPOND
+# ===========
+wait_for_api "Sonarr" "${SONARR_URL}/api/v3/system/status" "$SONARR_KEY"
+wait_for_api "Radarr" "${RADARR_URL}/api/v3/system/status" "$RADARR_KEY"
+wait_for_api "Prowlarr" "${PROWLARR_URL}/api/v1/system/status" "$PROWLARR_KEY"
+
+# ===========
+# STEP 4: AUTO-CONFIGURE SONARR & RADARR WITH SABNZBD + PROWLARR
+# ===========
 log "🔄 Auto-configuring Sonarr & Radarr with SABnzbd + Prowlarr..."
 
-# ===========
-# 1. ADD SABNZBD AS DOWNLOAD CLIENT
-# ===========
-log "➡ Adding SABnzbd to Sonarr..."
-curl -s -X POST "${SONARR_URL}/api/v3/downloadclient" \
-  -H "X-Api-Key: ${SONARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"name\": \"SABnzbd\",
-    \"enable\": true,
-    \"protocol\": \"usenet\",
-    \"priority\": 1,
-    \"configContract\": \"SabnzbdSettings\",
-    \"implementation\": \"Sabnzbd\",
-    \"fields\": [
-      {\"name\": \"apiKey\", \"value\": \"${SAB_KEY}\"},
-      {\"name\": \"host\", \"value\": \"${SAB_URL}\"},
-      {\"name\": \"port\", \"value\": 8080},
-      {\"name\": \"useSsl\", \"value\": false},
-      {\"name\": \"tvCategory\", \"value\": \"tv\"},
-      {\"name\": \"recentTvPriority\", \"value\": 0},
-      {\"name\": \"olderTvPriority\", \"value\": 0}
-    ]
-  }" >/dev/null && ok "Sonarr linked to SABnzbd"
+for app in Sonarr Radarr; do
+	URL_VAR="${app^^}_URL"
+	KEY_VAR="${app^^}_KEY"
+	log "➡ Adding SABnzbd to $app..."
+	curl -s -X POST "${!URL_VAR}/api/v3/downloadclient" \
+		-H "X-Api-Key: ${!KEY_VAR}" \
+		-H "Content-Type: application/json" \
+		--data "{
+      \"name\": \"SABnzbd\",
+      \"enable\": true,
+      \"protocol\": \"usenet\",
+      \"priority\": 1,
+      \"configContract\": \"SabnzbdSettings\",
+      \"implementation\": \"Sabnzbd\",
+      \"fields\": [
+        {\"name\": \"apiKey\", \"value\": \"${SAB_KEY}\"},
+        {\"name\": \"host\", \"value\": \"${SAB_URL}\"},
+        {\"name\": \"port\", \"value\": 8080},
+        {\"name\": \"useSsl\", \"value\": false},
+        {\"name\": \"${app,,}Category\", \"value\": \"${app,,}\"}
+      ]
+    }" >/dev/null && ok "$app linked to SABnzbd"
 
-log "➡ Adding SABnzbd to Radarr..."
-curl -s -X POST "${RADARR_URL}/api/v3/downloadclient" \
-  -H "X-Api-Key: ${RADARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"name\": \"SABnzbd\",
-    \"enable\": true,
-    \"protocol\": \"usenet\",
-    \"priority\": 1,
-    \"configContract\": \"SabnzbdSettings\",
-    \"implementation\": \"Sabnzbd\",
-    \"fields\": [
-      {\"name\": \"apiKey\", \"value\": \"${SAB_KEY}\"},
-      {\"name\": \"host\", \"value\": \"${SAB_URL}\"},
-      {\"name\": \"port\", \"value\": 8080},
-      {\"name\": \"useSsl\", \"value\": false},
-      {\"name\": \"movieCategory\", \"value\": \"movies\"},
-      {\"name\": \"recentMoviePriority\", \"value\": 0},
-      {\"name\": \"olderMoviePriority\", \"value\": 0}
-    ]
-  }" >/dev/null && ok "Radarr linked to SABnzbd"
+	log "➡ Linking Prowlarr as indexer for $app..."
+	curl -s -X POST "${!URL_VAR}/api/v3/indexer" \
+		-H "X-Api-Key: ${!KEY_VAR}" \
+		-H "Content-Type: application/json" \
+		--data "{
+      \"name\": \"Prowlarr\",
+      \"enable\": true,
+      \"protocol\": \"usenet\",
+      \"priority\": 1,
+      \"configContract\": \"ProwlarrSettings\",
+      \"implementation\": \"Prowlarr\",
+      \"fields\": [
+        {\"name\": \"apiKey\", \"value\": \"${PROWLARR_KEY}\"},
+        {\"name\": \"host\", \"value\": \"${PROWLARR_URL}\"},
+        {\"name\": \"port\", \"value\": 9696},
+        {\"name\": \"useSsl\", \"value\": false}
+      ]
+    }" >/dev/null && ok "$app linked to Prowlarr"
+done
 
 # ===========
-# 2. LINK PROWLARR AS INDEXER FOR BOTH
-# ===========
-log "➡ Linking Prowlarr as indexer for Sonarr..."
-curl -s -X POST "${SONARR_URL}/api/v3/indexer" \
-  -H "X-Api-Key: ${SONARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"name\": \"Prowlarr\",
-    \"enable\": true,
-    \"protocol\": \"usenet\",
-    \"priority\": 1,
-    \"configContract\": \"ProwlarrSettings\",
-    \"implementation\": \"Prowlarr\",
-    \"fields\": [
-      {\"name\": \"apiKey\", \"value\": \"${PROWLARR_KEY}\"},
-      {\"name\": \"host\", \"value\": \"${PROWLARR_URL}\"},
-      {\"name\": \"port\", \"value\": 9696},
-      {\"name\": \"useSsl\", \"value\": false}
-    ]
-  }" >/dev/null && ok "Sonarr linked to Prowlarr"
-
-log "➡ Linking Prowlarr as indexer for Radarr..."
-curl -s -X POST "${RADARR_URL}/api/v3/indexer" \
-  -H "X-Api-Key: ${RADARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data "{
-    \"name\": \"Prowlarr\",
-    \"enable\": true,
-    \"protocol\": \"usenet\",
-    \"priority\": 1,
-    \"configContract\": \"ProwlarrSettings\",
-    \"implementation\": \"Prowlarr\",
-    \"fields\": [
-      {\"name\": \"apiKey\", \"value\": \"${PROWLARR_KEY}\"},
-      {\"name\": \"host\", \"value\": \"${PROWLARR_URL}\"},
-      {\"name\": \"port\", \"value\": 9696},
-      {\"name\": \"useSsl\", \"value\": false}
-    ]
-  }" >/dev/null && ok "Radarr linked to Prowlarr"
-
-# ===========
-# 3. OPTIONAL: SEED PROWLARR WITH INDEXERS
+# STEP 5: SEED PROWLARR INDEXERS
 # ===========
 log "➡ Seeding default Usenet & torrent indexers in Prowlarr..."
 
 # NZBGeek
 curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
-  -H "X-Api-Key: ${PROWLARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data "{
+	-H "X-Api-Key: ${PROWLARR_KEY}" \
+	-H "Content-Type: application/json" \
+	--data "{
     \"name\": \"NZBGeek\",
     \"enabled\": true,
     \"protocol\": 1,
@@ -169,7 +241,7 @@ curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
     \"tags\": [],
     \"fields\": [
       {\"name\": \"baseUrl\", \"value\": \"https://api.nzbgeek.info\"},
-      {\"name\": \"apiKey\", \"value\": \"${NZBGEEK_KEY}\"},
+      {\"name\": \"apiKey\", \"value\": \"${NZBGEEK_API_KEY}\"},
       {\"name\": \"categories\", \"value\": \"5000,5030,5040\"}
     ],
     \"priority\": 25
@@ -177,9 +249,9 @@ curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
 
 # 1337x Torrent
 curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
-  -H "X-Api-Key: ${PROWLARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data '{
+	-H "X-Api-Key: ${PROWLARR_KEY}" \
+	-H "Content-Type: application/json" \
+	--data '{
     "name": "1337x",
     "enabled": true,
     "protocol": 2,
@@ -194,9 +266,9 @@ curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
 
 # RARBG Mirror
 curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
-  -H "X-Api-Key: ${PROWLARR_KEY}" \
-  -H "Content-Type: application/json" \
-  --data '{
+	-H "X-Api-Key: ${PROWLARR_KEY}" \
+	-H "Content-Type: application/json" \
+	--data '{
     "name": "RARBG Mirror",
     "enabled": true,
     "protocol": 2,
@@ -210,3 +282,4 @@ curl -s -X POST "${PROWLARR_URL}/api/v1/indexer" \
   }' >/dev/null && ok "Seeded RARBG mirror"
 
 ok "✅ Auto-linking + seeding complete!"
+echo "=== Auto-config completed at $(date) ==="
