@@ -122,16 +122,46 @@ update_tfvars_key() {
 }
 
 wait_for_api() {
-	local name=$1
-	local url=$2
-	local key=$3
-	log "⏳ Waiting for $name API at $url..."
-	until curl -s -o /dev/null -w "%{http_code}" "${url}" -H "X-Api-Key: ${key}" | grep -q "200"; do
-		echo "  $name not ready yet, retrying in 5s..."
-		sleep 5
-	done
-	ok "$name API is ready!"
+  local name=$1
+  local url=$2
+  local container=$3
+  local config_path=$4
+  local pattern=$5
+  local key_var_name=$6
+
+  echo "⏳ Waiting for $name API at $url..."
+  local retries=0
+
+  while true; do
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$url" -H "X-Api-Key: ${!key_var_name}" || true)
+
+    if [[ "$STATUS" == "200" ]]; then
+      echo "✅ $name API is ready!"
+      break
+    elif [[ "$STATUS" == "401" ]]; then
+      echo "⚠️ $name API returned 401 Unauthorized → refreshing API key..."
+      NEW_KEY=$(docker exec "$container" cat "$config_path" | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p")
+      echo "✅ New $name API key detected: $NEW_KEY"
+
+      # Update tfvars + key var
+      update_tfvars_key "${key_var_name,,}" "$NEW_KEY"
+      eval "$key_var_name=\"$NEW_KEY\""
+
+      echo "🔄 Retrying $name API with updated key..."
+      sleep 3
+    else
+      echo "  $name not ready yet (status $STATUS), retrying in 5s..."
+      sleep 5
+    fi
+
+    retries=$((retries+1))
+    if [[ $retries -gt 60 ]]; then
+      echo "❌ Timeout waiting for $name API!"
+      exit 1
+    fi
+  done
 }
+
 
 # ===========
 # STEP 1: WAIT FOR CONFIG FILES
