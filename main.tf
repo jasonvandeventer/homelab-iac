@@ -390,23 +390,11 @@ resource "docker_container" "sonarr" {
 }
 
 ############################################
-# AUTO-CONFIGURE SONARR & RADARR
+# Phase A: Fetch API keys only (safe)
 ############################################
-
-resource "null_resource" "configure_media_stack" {
+resource "null_resource" "fetch_media_keys" {
   provisioner "local-exec" {
-    command = <<EOT
-      bash scripts/configure-media-stack.sh \
-        --sonarr-url "http://localhost:${var.ports["sonarr"]}" \
-        --sonarr-key "${var.sonarr_api_key}" \
-        --radarr-url "http://localhost:${var.ports["radarr"]}" \
-        --radarr-key "${var.radarr_api_key}" \
-        --sab-url "http://localhost:${var.ports["sabnzbd"]}" \
-        --sab-key "${var.sabnzbd_api_key}" \
-        --prowlarr-url "http://localhost:${var.ports["prowlarr"]}" \
-        --prowlarr-key "${var.prowlarr_api_key}" \
-        --nzbgeek-key "${var.nzbgeek_api_key}"
-    EOT
+    command = "bash scripts/fetch-keys.sh"
   }
 
   depends_on = [

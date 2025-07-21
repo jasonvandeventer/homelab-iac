@@ -1,182 +1,221 @@
-# 🏠 Homelab Bootstrap – **Phase 1.5**
+# Homelab Media Stack (Terraform + Docker)
 
-> **Now with Prowlarr + Auto-Linking + Pre-Seeded Indexers**
->
-> Deploy Plex, SABnzbd, Sonarr, Radarr, Bazarr, Portainer, Nginx Proxy Manager, and Prowlarr **with one Terraform apply**.
->
-> ✅ **Single-command deployment**  
-> ✅ **GPU-accelerated Plex streaming**  
-> ✅ **Persistent volumes for all configs**  
-> ✅ **Automatic Sonarr/Radarr → SABnzbd + Prowlarr linking**  
-> ✅ **Prowlarr pre-seeded with NZBGeek + safe torrent indexers**
+This project automates deployment and configuration of a complete self-hosted media stack using **Terraform** and **Docker**.
+
+It deploys:
+
+- **Plex** – Media server with GPU passthrough  
+- **Sonarr** – TV show management  
+- **Radarr** – Movie management  
+- **Prowlarr** – Centralized indexer manager  
+- **Bazarr** – Subtitle downloader  
+- **SABnzbd** – Usenet downloader  
+- **Nginx Proxy Manager** – SSL + reverse proxy  
+- **Portainer** – Docker management UI  
+
+…and fully integrates them into a **zero-click automation pipeline** for media downloads.
 
 ---
 
-## 📂 Repo Structure
+## ✅ Multi-Phase Deployment
+
+To avoid long Terraform timeouts on first container startup, the setup is split into **three phases**:
+
+1️⃣ **Phase 1 – Infrastructure**  
+Terraform deploys all containers, networks, and volumes.  
+This finishes quickly without waiting for Sonarr/Radarr APIs.
+
+2️⃣ **Phase A – Fetch API Keys (automatic)**  
+A lightweight script (`fetch-keys.sh`) runs automatically after containers start.  
+It:
+
+- Detects any available API keys from containers
+- Updates `terraform.tfvars`
+- Logs progress to `scripts/fetch-keys.log`
+- **Never fails** even if some services are still initializing
+
+3️⃣ **Phase B – Link Services (manual)**  
+Once all APIs are ready, run `link-services.sh` manually to:
+
+- Link Sonarr/Radarr → SABnzbd + Prowlarr
+- Seed Prowlarr with NZBGeek and torrent trackers
+- Logs results to `scripts/link-services.log`
+
+This phased approach keeps Terraform fast, safe, and portfolio-friendly.
+
+---
+
+## ✅ Directory Structure
 
 ```md
-homelab-bootstrap/
-├── main.tf # Terraform config for media stack
-├── variables.tf # API keys, ports, user config
-├── outputs.tf # Quick access URLs
-├── terraform.tfvars # Your personal API keys + TZ
-├── scripts/
-│ └── configure-media-stack.sh # Auto-links Sonarr/Radarr to SABnzbd + Prowlarr + seeds indexers
-└── volumes.tf # (Optional) extra volume definitions
+scripts/
+├── fetch-keys.sh        # Phase A → fetch API keys automatically
+├── link-services.sh     # Phase B → run manually to link services
+├── fetch-keys.log       # Logs key detection results
+├── link-services.log    # Logs linking & seeding results
 ```
 
 ---
 
-## 🖥️ Phase 1.5 Services
+## ✅ Prerequisites
 
-| Service                 | Purpose                          | Default Port   |
-| ----------------------- | -------------------------------- | -------------- |
-| **Bazarr**              | Subtitle management              | `6767`         |
-| **Nginx Proxy Manager** | Reverse proxy & SSL              | `81`, `80/443` |
-| **Plex**                | GPU-accelerated media server     | `32400`        |
-| **Portainer**           | Docker management UI             | `9000`         |
-| **Prowlarr**            | Unified Usenet + torrent indexer | `9696`         |
-| **Radarr**              | Movie management                 | `7878`         |
-| **SABnzbd**             | Usenet downloader                | `8080`         |
-| **Sonarr**              | TV show management               | `8989`         |
-
-All configs now live in **dedicated volumes**, ensuring persistence across upgrades:
-
-- `/var/lib/docker/volumes/bazarr_config`
-- `/var/lib/docker/volumes/radarr_config`
-- `/var/lib/docker/volumes/sonarr_config`
-- `/var/lib/docker/volumes/sabnzbd_config`
-- `/var/lib/docker/volumes/prowlarr_config`
-- `/var/lib/docker/volumes/plex_config`
-
-Shared media paths:
-
-- `downloads` → SABnzbd, Sonarr, Radarr, Bazarr
-- `media_library` → Plex library
+- Ubuntu 22.04+ or Debian-based VM (Proxmox LXC/VM works)
+- Terraform 1.8+
+- Docker & Docker Compose plugin installed
+- Git
 
 ---
 
-## 🚀 Quick Start
+## ✅ Deployment Guide
 
-1️⃣ **Configure your API keys**  
-Create `terraform.tfvars` with your real keys:
+### 1. Clone the repo
 
-```hcl
-sabnzbd_api_key  = "YOUR_SABNZBD_KEY"
-sonarr_api_key   = "YOUR_SONARR_KEY"
-radarr_api_key   = "YOUR_RADARR_KEY"
-prowlarr_api_key = "YOUR_PROWLARR_KEY"
-nzbgeek_api_key  = "YOUR_NZBGEEK_KEY"
+```bash
+git clone https://github.com/<your-github-username>/homelab-bootstrap.git
+cd homelab-bootstrap
 ```
 
-2️⃣ **Deploy the stack**
+### 2. Copy example variables
+
+```bash
+cp terraform.tfvars.example terraform.tfvars
+nano terraform.tfvars
+```
+
+- Set your `nzbgeek_api_key`
+- Leave Sonarr/Radarr/Prowlarr keys as `"CHANGEME"` (they’ll auto-populate later)
+
+### 3. Deploy Phase 1 + Phase A
 
 ```bash
 terraform init
 terraform apply
 ```
 
-3️⃣ **Wait for auto-linking to complete**  
-Terraform will run `scripts/configure-media-stack.sh` to:
+- Terraform will:
+  - Create Docker network/volumes
+  - Deploy all containers
+  - Run **Phase A (`fetch-keys.sh`)** automatically
+  - Populate any API keys that are ready into `terraform.tfvars`
 
-- Link SABnzbd → Sonarr + Radarr
-- Link Prowlarr → Sonarr + Radarr
-- Pre-seed Prowlarr with **NZBGeek + 1337x + RARBG mirror**
+### 4. Wait for containers to initialize
 
-4️⃣ **Access your services**  
-After apply completes:
-
-```bash
-terraform output media_stack_urls
-```
-
----
-
-## ♻️ What’s New in Phase 1.5?
-
-✅ **Dedicated config volumes for every container** (no mixed data)  
-✅ **Prowlarr container added**  
-✅ **Auto-linking script** for Sonarr + Radarr + SABnzbd + Prowlarr  
-✅ **Pre-seeded Prowlarr** with NZBGeek + safe torrent trackers  
-✅ **Instant usable stack** → Sonarr/Radarr immediately have download client + indexers configured
-
----
-
-## 🔄 Post-Deploy Behavior
-
-- Updating containers with `terraform apply` **does not reset API keys** (persisted in `/config` volumes).
-- Adding more indexers later? Just run:
+- On first boot, Sonarr/Radarr/Prowlarr can take **2–5 minutes** for DB migrations
+- Check logs:
 
   ```bash
-  bash scripts/configure-media-stack.sh     --sonarr-url "http://localhost:8989"     --sonarr-key "$SONARR_KEY"     --radarr-url "http://localhost:7878"     --radarr-key "$RADARR_KEY"     --sab-url "http://localhost:8080"     --sab-key "$SAB_KEY"     --prowlarr-url "http://localhost:9696"     --prowlarr-key "$PROWLARR_KEY"     --nzbgeek-key "$NZBGEEK_KEY"
+  docker logs sonarr | grep "Application has finished startup"
   ```
 
----
+### 5. Re-run Phase A (optional)
 
-## 📈 Portfolio Value
-
-This now demonstrates:
-
-- **Infrastructure as Code** (Terraform-managed Docker stack)
-- **Persistent volume strategy**
-- **Automated service integration via APIs**
-- **Unified indexer (Prowlarr) auto-seeded with providers**
-- **Truly one-command media stack deploy**
-
----
-
-## ✅ Quick URLs
-
-After `terraform apply`, view all services:
+If some keys weren’t ready the first time:
 
 ```bash
-terraform output media_stack_urls
+bash scripts/fetch-keys.sh
 ```
 
-Example:
+Repeat until `terraform.tfvars` has **real keys for Sonarr/Radarr/Prowlarr**.
 
-- Plex → `http://localhost:32400`
-- Sonarr → `http://localhost:8989`
-- Radarr → `http://localhost:7878`
-- Bazarr → `http://localhost:6767`
-- SABnzbd → `http://localhost:8080`
-- Portainer → `http://localhost:9000`
-- Nginx Proxy Manager → `http://localhost:81`
-- Prowlarr → `http://localhost:9696`
+### 6. Run Phase B (linking)
 
----
-
-### ✅ Phase 1.5 Highlights
-
-**Before:**
-
-- Containers deployed, but Sonarr/Radarr setup was manual
-- No indexers → needed to log into Prowlarr and add them
-
-**Now:**
-
-- **Zero-click setup** → after Terraform apply, Sonarr & Radarr already know SABnzbd + Prowlarr
-- **Baseline providers** (NZBGeek + torrents) already usable
-- Fully persistent → upgrades won’t break configuration
-
----
-
-## 🛠 Next Phases
-
-Phase 2.0 will add:
-
-- **Homarr Dashboard** (Phase 2.6)
-- **Monitoring & security stack (Prometheus, Grafana, CrowdSec)**
-- Optional **Pi-hole/qBittorrent + VLAN work**
-
----
-
-## ✅ Commit & Push
-
-After testing:
+Once keys are present:
 
 ```bash
-git add .
-git commit -m "feat: Phase 1.5 – Added Prowlarr + auto-linking & seeded indexers"
-git push origin main
+bash scripts/link-services.sh
 ```
+
+This will:
+
+- Wait for APIs
+- Auto-link Sonarr/Radarr → SABnzbd + Prowlarr
+- Seed Prowlarr with NZBGeek and torrent trackers
+
+---
+
+## ✅ Terraform Outputs
+
+After Phase 1, Terraform prints local URLs for each service:
+
+```hcl
+Outputs:
+
+media_stack_urls = {
+  "plex"      = "http://localhost:32400"
+  "sonarr"    = "http://localhost:8989"
+  "radarr"    = "http://localhost:7878"
+  "bazarr"    = "http://localhost:6767"
+  "sabnzbd"   = "http://localhost:8080"
+  "prowlarr"  = "http://localhost:9696"
+  "portainer" = "http://localhost:9000"
+  "npm_admin" = "http://localhost:81"
+}
+```
+
+---
+
+## ✅ Why Two Phases?
+
+On first run, Sonarr/Radarr/Prowlarr:
+
+- Take longer to initialize (DB migrations)
+- Generate their API keys only after startup completes
+
+If Terraform tried to configure them immediately:
+
+- It would hang for 5–10 minutes
+- Often fail with `401 Unauthorized`
+
+By splitting into **Phase A (safe key fetch)** + **Phase B (manual linking)**:
+
+- Terraform is **fast and reliable**
+- Keys populate automatically when ready
+- Linking only happens once APIs are healthy
+
+---
+
+## ✅ Logs for Portfolio
+
+- **Phase A log:** `scripts/fetch-keys.log`  
+  Shows which services generated keys
+
+- **Phase B log:** `scripts/link-services.log`  
+  Shows APIs coming online, linking success, and Prowlarr indexer seeding
+
+These logs provide **verifiable proof of automation** for your portfolio.
+
+---
+
+## ✅ Commands Recap
+
+```bash
+# Deploy containers + auto-fetch keys (Phase 1 + A)
+terraform apply
+
+# Wait for services to finish migrations...
+docker logs sonarr | grep "Application has finished startup"
+
+# Re-run Phase A until keys populate
+bash scripts/fetch-keys.sh
+
+# Run Phase B once keys are ready
+bash scripts/link-services.sh
+```
+
+---
+
+## ✅ Roadmap
+
+- Phase 2: Add monitoring stack (Grafana + Prometheus)
+- Phase 3: Add VLAN segmentation & pfSense integration
+- Phase 4: K3s + GitOps migration (ArgoCD)
+
+---
+
+*This project demonstrates professional-grade DevOps automation: Terraform for infra, split-phase scripting for runtime config, and robust error-handling for slow-starting services.*
+
+---
+
+## ✅ License
+
+MIT
