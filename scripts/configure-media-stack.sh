@@ -43,15 +43,13 @@ wait_for_config_file() {
 }
 
 ############################################################
-# Helper: fetch API key from a config file inside container
+# Helper: safe fetch API key from a config file inside container
 ############################################################
-fetch_api_key() {
+safe_fetch_key() {
   local container=$1
-  local config_path=$2
+  local path=$2
   local pattern=$3
-
-  echo "🔍 Fetching API key for $container..."
-  docker exec "$container" cat "$config_path" | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p"
+  docker exec "$container" cat "$path" 2>/dev/null | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p" || true
 }
 
 ############################################################
@@ -68,7 +66,33 @@ update_tfvars_key() {
 }
 
 ############################################################
-# Helper: wait for API & auto-heal 401 Unauthorized
+# Helper: initial key fetch (non-fatal)
+############################################################
+fetch_or_warn() {
+  local name=$1
+  local container=$2
+  local path=$3
+  local pattern=$4
+  local tfvar_key=$5
+  local current_key=$6
+
+  if [ -z "$current_key" ] || [ "$current_key" = "CHANGEME" ]; then
+    NEW_KEY=$(safe_fetch_key "$container" "$path" "$pattern")
+    if [ -n "$NEW_KEY" ]; then
+      echo "✅ $name API key detected: $NEW_KEY"
+      update_tfvars_key "$tfvar_key" "$NEW_KEY"
+      echo "$NEW_KEY"
+    else
+      echo "⚠️ Could not fetch $name key yet (will retry during API wait)..."
+      echo "$current_key"
+    fi
+  else
+    echo "$current_key"
+  fi
+}
+
+############################################################
+# Helper: wait for API & auto-heal keys if 401 Unauthorized
 ############################################################
 wait_for_api() {
   local name=$1
@@ -90,14 +114,15 @@ wait_for_api() {
       break
     elif [[ "$STATUS" == "401" ]]; then
       echo "⚠️ $name API returned 401 Unauthorized → refreshing API key..."
-      current_key=$(docker exec "$container" cat "$config_path" | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p")
-      echo "✅ New $name API key detected: $current_key"
-
-      # Update terraform.tfvars with the refreshed key
-      update_tfvars_key "$tfvar_key_name" "$current_key"
-
-      echo "🔄 Retrying $name API with updated key..."
-      sleep 3
+      NEW_KEY=$(safe_fetch_key "$container" "$config_path" "$pattern")
+      if [ -n "$NEW_KEY" ]; then
+        current_key="$NEW_KEY"
+        echo "✅ Updated $name API key: $current_key"
+        update_tfvars_key "$tfvar_key_name" "$current_key"
+      else
+        echo "⚠️ $name key still not ready, retrying..."
+      fi
+      sleep 5
     else
       echo "  $name not ready yet (status $STATUS), retrying in 5s..."
       sleep 5
@@ -123,53 +148,13 @@ wait_for_config_file "prowlarr" "/config/config.xml"
 wait_for_config_file "sabnzbd" "/config/sabnzbd.ini"
 
 ############################################################
-# Step 2: Safe auto-fetch API keys if placeholders/empty
+# Step 2: Safe initial auto-fetch API keys (non-fatal)
 ############################################################
+SONARR_KEY=$(fetch_or_warn "Sonarr" "sonarr" "/config/config.xml" "ApiKey" "sonarr_api_key" "$SONARR_KEY")
+RADARR_KEY=$(fetch_or_warn "Radarr" "radarr" "/config/config.xml" "ApiKey" "radarr_api_key" "$RADARR_KEY")
+PROWLARR_KEY=$(fetch_or_warn "Prowlarr" "prowlarr" "/config/config.xml" "ApiKey" "prowlarr_api_key" "$PROWLARR_KEY")
 
-safe_fetch_key() {
-  local container=$1
-  local path=$2
-  local pattern=$3
-  docker exec "$container" cat "$path" 2>/dev/null | grep "$pattern" | sed -n "s/.*$pattern[\">=]*\\([^\"<]*\\).*/\\1/p" || true
-}
-
-# Sonarr
-if [ -z "$SONARR_KEY" ] || [ "$SONARR_KEY" = "CHANGEME" ]; then
-  NEW_KEY=$(safe_fetch_key "sonarr" "/config/config.xml" "ApiKey")
-  if [ -n "$NEW_KEY" ]; then
-    SONARR_KEY="$NEW_KEY"
-    echo "✅ Sonarr API key detected: $SONARR_KEY"
-    update_tfvars_key "sonarr_api_key" "$SONARR_KEY"
-  else
-    echo "⚠️ Could not fetch Sonarr key (will retry later)."
-  fi
-fi
-
-# Radarr
-if [ -z "$RADARR_KEY" ] || [ "$RADARR_KEY" = "CHANGEME" ]; then
-  NEW_KEY=$(safe_fetch_key "radarr" "/config/config.xml" "ApiKey")
-  if [ -n "$NEW_KEY" ]; then
-    RADARR_KEY="$NEW_KEY"
-    echo "✅ Radarr API key detected: $RADARR_KEY"
-    update_tfvars_key "radarr_api_key" "$RADARR_KEY"
-  else
-    echo "⚠️ Could not fetch Radarr key (will retry later)."
-  fi
-fi
-
-# Prowlarr
-if [ -z "$PROWLARR_KEY" ] || [ "$PROWLARR_KEY" = "CHANGEME" ]; then
-  NEW_KEY=$(safe_fetch_key "prowlarr" "/config/config.xml" "ApiKey")
-  if [ -n "$NEW_KEY" ]; then
-    PROWLARR_KEY="$NEW_KEY"
-    echo "✅ Prowlarr API key detected: $PROWLARR_KEY"
-    update_tfvars_key "prowlarr_api_key" "$PROWLARR_KEY"
-  else
-    echo "⚠️ Could not fetch Prowlarr key (will retry later)."
-  fi
-fi
-
-# SABnzbd
+# SABnzbd key is in sabnzbd.ini
 if [ -z "$SAB_KEY" ] || [ "$SAB_KEY" = "CHANGEME" ]; then
   NEW_KEY=$(docker exec sabnzbd grep "api_key" /config/sabnzbd.ini 2>/dev/null | cut -d' ' -f3 || true)
   if [ -n "$NEW_KEY" ]; then
@@ -177,10 +162,9 @@ if [ -z "$SAB_KEY" ] || [ "$SAB_KEY" = "CHANGEME" ]; then
     echo "✅ SABnzbd API key detected: $SAB_KEY"
     update_tfvars_key "sabnzbd_api_key" "$SAB_KEY"
   else
-    echo "⚠️ Could not fetch SABnzbd key (will retry later)."
+    echo "⚠️ Could not fetch SABnzbd key yet (will retry during API wait)..."
   fi
 fi
-
 
 ############################################################
 # Step 3: Wait for APIs (auto-heal keys if needed)
