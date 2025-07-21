@@ -14,15 +14,42 @@ echo "=== Starting media stack auto-config: $(date) ==="
 ############################################################
 while [[ "$#" -gt 0 ]]; do
   case $1 in
-    --sonarr-url) SONARR_URL="$2"; shift ;;
-    --sonarr-key) SONARR_KEY="$2"; shift ;;
-    --radarr-url) RADARR_URL="$2"; shift ;;
-    --radarr-key) RADARR_KEY="$2"; shift ;;
-    --sab-url) SAB_URL="$2"; shift ;;
-    --sab-key) SAB_KEY="$2"; shift ;;
-    --prowlarr-url) PROWLARR_URL="$2"; shift ;;
-    --prowlarr-key) PROWLARR_KEY="$2"; shift ;;
-    --nzbgeek-key) NZBGEEK_API_KEY="$2"; shift ;;
+  --sonarr-url)
+    SONARR_URL="$2"
+    shift
+    ;;
+  --sonarr-key)
+    SONARR_KEY="$2"
+    shift
+    ;;
+  --radarr-url)
+    RADARR_URL="$2"
+    shift
+    ;;
+  --radarr-key)
+    RADARR_KEY="$2"
+    shift
+    ;;
+  --sab-url)
+    SAB_URL="$2"
+    shift
+    ;;
+  --sab-key)
+    SAB_KEY="$2"
+    shift
+    ;;
+  --prowlarr-url)
+    PROWLARR_URL="$2"
+    shift
+    ;;
+  --prowlarr-key)
+    PROWLARR_KEY="$2"
+    shift
+    ;;
+  --nzbgeek-key)
+    NZBGEEK_API_KEY="$2"
+    shift
+    ;;
   esac
   shift
 done
@@ -61,7 +88,7 @@ update_tfvars_key() {
   if grep -q "$key_name" terraform.tfvars; then
     sed -i "s|$key_name.*|$key_name  = \"$key_value\"|" terraform.tfvars
   else
-    echo "$key_name  = \"$key_value\"" >> terraform.tfvars
+    echo "$key_name  = \"$key_value\"" >>terraform.tfvars
   fi
 }
 
@@ -128,7 +155,7 @@ wait_for_api() {
       sleep 5
     fi
 
-    retries=$((retries+1))
+    retries=$((retries + 1))
     if [[ $retries -gt 60 ]]; then
       echo "❌ Timeout waiting for $name API!"
       exit 1
@@ -169,34 +196,37 @@ fi
 ############################################################
 # Step 3: Wait for APIs (auto-heal keys if needed)
 ############################################################
-SONARR_KEY=$(wait_for_api \
-  "Sonarr" \
-  "${SONARR_URL}/api/v3/system/status" \
-  "sonarr" \
-  "/config/config.xml" \
-  "ApiKey" \
-  "$SONARR_KEY" \
-  "sonarr_api_key"
+SONARR_KEY=$(
+  wait_for_api \
+    "Sonarr" \
+    "${SONARR_URL}/api/v3/system/status" \
+    "sonarr" \
+    "/config/config.xml" \
+    "ApiKey" \
+    "$SONARR_KEY" \
+    "sonarr_api_key"
 )
 
-RADARR_KEY=$(wait_for_api \
-  "Radarr" \
-  "${RADARR_URL}/api/v3/system/status" \
-  "radarr" \
-  "/config/config.xml" \
-  "ApiKey" \
-  "$RADARR_KEY" \
-  "radarr_api_key"
+RADARR_KEY=$(
+  wait_for_api \
+    "Radarr" \
+    "${RADARR_URL}/api/v3/system/status" \
+    "radarr" \
+    "/config/config.xml" \
+    "ApiKey" \
+    "$RADARR_KEY" \
+    "radarr_api_key"
 )
 
-PROWLARR_KEY=$(wait_for_api \
-  "Prowlarr" \
-  "${PROWLARR_URL}/api/v1/system/status" \
-  "prowlarr" \
-  "/config/config.xml" \
-  "ApiKey" \
-  "$PROWLARR_KEY" \
-  "prowlarr_api_key"
+PROWLARR_KEY=$(
+  wait_for_api \
+    "Prowlarr" \
+    "${PROWLARR_URL}/api/v1/system/status" \
+    "prowlarr" \
+    "/config/config.xml" \
+    "ApiKey" \
+    "$PROWLARR_KEY" \
+    "prowlarr_api_key"
 )
 
 ############################################################
